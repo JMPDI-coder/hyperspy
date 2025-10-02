@@ -1761,6 +1761,89 @@ class Signal1D(BaseSignal, CommonSignal1D):
         PLOT1D_DOCSTRING,
     )
 
+    def remove_background_signal(self, bkg, inplace=False):
+        """
+        Subtract a background signal from this Signal1D object.
+
+        This method subtracts a background Signal1D from the current signal.
+        If the axes of the background signal do not match the main signal,
+        the background will be interpolated onto the main signal axis before subtraction.
+
+        Parameters
+        ----------
+        bkg : Signal1D
+            Background signal to subtract.
+        inplace : bool, optional
+            If True, modify this signal in-place. Default is False.
+
+        Returns
+        -------
+        Signal1D
+            The result of the subtraction. If `inplace=True`, returns the current signal itself.
+
+        Raises
+        ------
+        ValueError
+            If the navigation axes of `self` and `bkg` do not match.
+
+        Examples
+        --------
+        >>> import hyperspy.api as hs
+        >>> import numpy as np
+        >>> x = np.linspace(0, 10, 100)
+        >>> y = np.sin(x)
+        >>> s = hs.signals.Signal1D(y)
+        >>> s.axes_manager.signal_axes[0].name = "Energy"
+        >>> s.axes_manager.signal_axes[0].units = "eV"
+        >>> bkg = hs.signals.Signal1D(y * 0.7)
+        >>> bkg.axes_manager.signal_axes[0].name = "Energy"
+        >>> bkg.axes_manager.signal_axes[0].units = "eV"
+        >>> result = s.remove_background_signal(bkg)
+        >>> result.axes_manager.signal_axes[0].name = "Energy"
+        >>> result.axes_manager.signal_axes[0].units = "eV"
+        >>> hs.plot.plot_spectra(
+        ...     [s, bkg, result],
+        ...     legend=["Original Signal", "Background signal", "Difference"],
+        ...     drawstyle='steps-mid'
+        ... )
+        """
+
+        # 1. Get signal axes
+        axis_main = self.axes_manager.signal_axes[0]
+        axis_bkg = bkg.axes_manager.signal_axes[0]
+
+        # 2. Check navigation axes
+        if self.axes_manager.navigation_shape != bkg.axes_manager.navigation_shape:
+            if len(bkg.axes_manager.navigation_shape) == 0:
+                pass
+            else:
+                raise ValueError("Navigation axes do not match.")
+
+        # 3 Interpolating
+        if axis_main.is_uniform and axis_bkg.is_uniform:
+            if (
+                axis_main.size == axis_bkg.size
+                and axis_main.scale == axis_bkg.scale
+                and axis_main.offset == axis_bkg.offset
+            ):
+                bkg_interp = bkg
+            elif axis_main.axis == axis_bkg.axis:
+                bkg_interp = bkg
+            else:
+                bkg_interp = bkg.interpolate_on_axis(axis_main, -1, inplace=False)
+        else:
+            bkg_interp = bkg.interpolate_on_axis(axis_main, -1, inplace=False)
+
+        # 4. Subtract signals
+        result = self - bkg_interp
+
+        if inplace:
+            self.data[:] = result.data
+            self.metadata.Signal["background-signal_removed"] = True
+            return
+        result.metadata.Signal["background-signal_removed"] = True
+        return result
+
 
 class LazySignal1D(LazySignal, Signal1D):
     """Lazy general 1D signal class."""

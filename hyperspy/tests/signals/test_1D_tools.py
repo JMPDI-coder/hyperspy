@@ -420,3 +420,80 @@ def test_hanning_wrong_type(float_data):
     else:
         with pytest.raises(TypeError):
             sig.hanning_taper()
+
+
+class Testremove_background_signal:
+    def setup_method(self, method):
+        # Basis-Signal uniform
+        self.x_uniform = np.linspace(0, 10, 100)
+        self.y_uniform = np.sin(self.x_uniform)
+        self.s_uniform = hs.signals.Signal1D(self.y_uniform)
+
+        # Hintergrund uniform
+        self.bkg_uniform = hs.signals.Signal1D(0.2 * np.ones_like(self.x_uniform))
+
+        # Hintergrund non-uniform
+        x_bkg_nonuniform = np.sort(np.random.uniform(0, 10, 100))
+        bkg_nonuniform_data = 0.2 * np.ones_like(x_bkg_nonuniform)
+        self.bkg_nonuniform = hs.signals.Signal1D(bkg_nonuniform_data)
+        self.bkg_nonuniform.axes_manager[-1].axis = x_bkg_nonuniform
+
+        # Basis-Signal non-uniform
+        x_nonuniform = np.sort(np.random.uniform(0, 10, 100))
+        y_nonuniform = np.sin(x_nonuniform)
+        self.s_nonuniform = hs.signals.Signal1D(y_nonuniform)
+        self.s_nonuniform.axes_manager[-1].axis = x_nonuniform
+
+        # Multi-Pixel Signal
+        self.s_multi = hs.signals.Signal1D(np.tile(self.y_uniform, (5, 1)))
+        self.s_multi.axes_manager[-1].axis = self.x_uniform
+
+        # Single-Pixel Hintergrund
+        self.bkg_single = hs.signals.Signal1D(0.2 * np.ones_like(self.x_uniform))
+
+    def test_uniform_signals(self):
+        result = self.s_uniform.remove_background_signal(self.bkg_uniform)
+        assert np.allclose(result.data, self.y_uniform - 0.2)
+
+    def test_background_nonuniform(self):
+        result = self.s_uniform.remove_background_signal(self.bkg_nonuniform)
+        assert np.allclose(result.data, self.y_uniform - 0.2, atol=1e-2)
+
+    def test_base_nonuniform(self):
+        result = self.s_nonuniform.remove_background_signal(self.bkg_uniform)
+        assert np.allclose(result.data, self.s_nonuniform.data - 0.2, atol=1e-2)
+
+    def test_both_nonuniform(self):
+        result = self.s_nonuniform.remove_background_signal(self.bkg_nonuniform)
+        assert np.allclose(result.data, self.s_nonuniform.data - 0.2, atol=1e-2)
+
+    def test_inplace(self):
+        data_before = self.s_uniform.data.copy()
+        self.s_uniform.remove_background_signal(self.bkg_uniform, inplace=True)
+        # Prüfe Daten
+        assert np.allclose(self.s_uniform.data, data_before - 0.2)
+        # Prüfe, ob das Metadata-Flag gesetzt wurde
+        assert "background-signal_removed" in self.s_uniform.metadata.Signal
+        assert self.s_uniform.metadata.Signal["background-signal_removed"] is True
+
+    def test_metadata_set(self):
+        result = self.s_uniform.remove_background_signal(self.bkg_uniform)
+        # Prüfe, ob das Metadata-Flag gesetzt wurde
+        assert "background-signal_removed" in result.metadata.Signal
+        assert result.metadata.Signal["background-signal_removed"] is True
+
+    def test_single_pixel_background_multi_pixel_signal(self):
+        result = self.s_multi.remove_background_signal(self.bkg_single)
+        expected = np.tile(self.y_uniform - 0.2, (5, 1))
+        assert np.allclose(result.data, expected)
+
+    def test_navigation_mismatch_raises(self):
+        s_multi2 = hs.signals.Signal1D(np.tile(self.y_uniform, (5, 1)))
+        bkg_wrong = hs.signals.Signal1D(
+            np.tile(0.1 * np.ones_like(self.x_uniform), (3, 1))
+        )
+        try:
+            s_multi2.remove_background_signal(bkg_wrong)
+            assert False, "Sollte ValueError werfen"
+        except ValueError as e:
+            assert str(e) == "Navigation axes do not match."

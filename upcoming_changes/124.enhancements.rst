@@ -1,0 +1,1 @@
+Subtract background signals from Signal1D objects, supporting uniform and non-uniform axes with automatic interpolation. Optionally modify the signal in-place. Replaces remove_background_from_file from LumiSpy.
